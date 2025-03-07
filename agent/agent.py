@@ -1,98 +1,174 @@
-import os
-import sys
-current_script_path = os.path.abspath(__file__)
-project_root = os.path.dirname(os.path.dirname(current_script_path))
-sys.path.append(project_root)
-import subprocess
-from langchain.agents import initialize_agent, Tool
-from langchain.llms.base import LLM
-from langchain.chains import RetrievalQA
-from external.weather_api import get_weather
+import logging
+from typing import Dict, List, Optional, Tuple, Union
+import json5
+from tools.tool import Tool
+from llms.deepSeekLLM import DeepSeekLLM
 
-# from external.market_api import get_market_price
-# from data.faiss_index import get_faiss_index
-from pydantic import Field  # 导入 Field
+# 配置日志系统
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("agent.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-class DeepSeekLLM(LLM):
-    """自定义调用本地 DeepSeek 模型的 LLM 封装器"""
-    model_command: str = Field(default="", description="命令行命令，用于调用本地模型")
+TOOL_DESC = """{name_for_model}: Call this tool to interact with the {name_for_human} API. What is the {name_for_human} API useful for? {description_for_model} Parameters: {parameters} Format the arguments as a JSON object."""
+REACT_PROMPT = """Answer the following questions as best you can. You have access to the following tools:
 
-    def __init__(self, model_command: str):
-        super().__init__(model_command=model_command)  # 使用 Pydantic 的初始化方法
+{tool_descs}
 
-    @property
-    def _llm_type(self) -> str:
-        return "deepseek"
+Use the following format:
 
-    def _call(self, prompt: str, stop=None) -> str:
-        # 调用本地命令行工具执行模型推理
-        process = subprocess.Popen(
-            self.model_command.split() + [prompt],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            encoding="utf-8",  # 显式指定编码
-            errors="replace"   # 替换无法解码的字符
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can be repeated zero or more times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+"""
+
+
+class Agent:
+    def __init__(self, command: str = '', tools: List[Tool] = None) -> None:
+        logger.info("正在初始化智能代理...")
+        self.model = DeepSeekLLM(command)
+        logger.info("正在启动模型服务...")
+        self.model.start()
+        self.tools = tools or []
+        self.tool_funcs = {tool.name_for_model: tool.func for tool in self.tools}
+        logger.debug(f"注册工具: {[tool.name_for_model for tool in self.tools]}")
+        self.system_prompt = self.build_system_input()
+        logger.debug(f"系统提示长度: {len(self.system_prompt)}")
+
+    def build_system_input(self):
+        logger.info("正在构建系统提示...")
+        tool_descs = []
+        tool_names = []
+        for tool in self.tools:
+            config = tool.to_config()
+            parameters_str = json5.dumps(config['parameters'], ensure_ascii=False)
+            formatted_desc = TOOL_DESC.format(
+                name_for_model=config['name_for_model'],
+                name_for_human=config['name_for_human'],
+                description_for_model=config['description_for_model'],
+                parameters=parameters_str
+            )
+            tool_descs.append(formatted_desc)
+            tool_names.append(config['name_for_model'])
+            logger.debug(f"添加工具描述: {config['name_for_model']}")
+        
+        system_prompt = REACT_PROMPT.format(
+            tool_descs='\n\n'.join(tool_descs),
+            tool_names=','.join(tool_names)
         )
-        stdout, stderr = process.communicate()
-        if stderr:
-            print("Error:", stderr)
-        if stdout is None:
-            return ""  # 如果 stdout 为 None，返回空字符串
-        return stdout.strip()
+        logger.debug(f"系统提示预览: {system_prompt[:200]}...")
+        return system_prompt
 
-def get_agent():
-    # # 初始化向量检索工具，封装为 LangChain 的 Tool 类型
-    # def faiss_search(query: str) -> str:
-    #     index = get_faiss_index()  # 获取预构建的 FAISS 索引对象
-    #     docs = index.similarity_search(query, k=3)
-    #     return "\n".join([doc.page_content for doc in docs])
-    
-    # vector_tool = Tool(
-    #     name="向量检索工具",
-    #     func=faiss_search,
-    #     description="通过向量数据库检索相关知识，输入查询内容，返回相关文档摘要"
-    # )
+    def parse_tool_call(self, text: str) -> Tuple[Optional[str], Optional[dict]]:
+        logger.info("正在解析工具调用...")
+        action_prefix = "\nAction:"
+        input_prefix = "\nAction Input:"
+        observation_prefix = "\nObservation:"
+        
+        action_pos = text.rfind(action_prefix)
+        input_pos = text.rfind(input_prefix)
+        obs_pos = text.rfind(observation_prefix)
+        
+        if action_pos == -1 or input_pos <= action_pos:
+            logger.warning("未找到有效工具调用结构")
+            return None, None
+        
+        tool_name = text[action_pos+len(action_prefix):input_pos].strip()
+        tool_args_str = text[input_pos+len(input_prefix):obs_pos if obs_pos != -1 else None].strip()
+        
+        try:
+            tool_args = json5.loads(tool_args_str)
+            logger.info(f"成功解析工具调用: {tool_name} 参数: {tool_args}")
+            return tool_name, tool_args
+        except json5.JSONDecodeError as e:
+            logger.error(f"工具参数解析失败: {e}")
+            return None, None
 
-    # 外部数据调用工具（例如天气查询）
-    def weather_tool(query: str) -> str:
-        return get_weather(query)
+    def execute_tool(self, tool_name: str, tool_args: dict) -> str:
+        logger.info(f"正在执行工具: {tool_name}")
+        if tool_name not in self.tool_funcs:
+            error_msg = f"未知工具: {tool_name}"
+            logger.error(error_msg)
+            return f"\nObservation: {error_msg}"
+        
+        try:
+            logger.debug(f"执行工具参数: {tool_args}")
+            result = self.tool_funcs[tool_name](**tool_args)
+            logger.info(f"工具执行成功，结果: {result}")
+            return f"\nObservation: {result}"
+        except Exception as e:
+            error_msg = f"工具执行失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return f"\nObservation: {error_msg}"
 
-    weather_data_tool = Tool(
-        name="天气查询工具",
-        func=weather_tool,
-        description="输入地名，返回当前天气信息"
-    )
-    # market_price_tool = Tool(
-    #     name="市场价格查询工具",
-    #     func=MarketPriceTool()._run,  # 使用 MarketPriceTool 的 _run 方法
-    #     description="输入农产品名称和地区（格式：<产品名称>,<地区>），返回市场价格"
-    # )
-    # 初始化 DeepSeek 模型
-    deepseek_llm = DeepSeekLLM("ollama run deepseek-r1:1.5b")
+    def generate_response(self, query: str, max_turns: int = 5) -> str:
+        logger.info(f"开始处理查询: {query}")
+        history = []
+        current_prompt = f"\nQuestion: {query}"
+        
+        for turn in range(max_turns):
+            logger.info(f"处理轮次 {turn+1}/{max_turns}")
+            logger.debug(f"当前提示内容: {current_prompt}")
+            
+            # 构建完整提示
+            full_prompt = self.model.build_prompt(current_prompt, history, self.system_prompt)
+            logger.debug(f"完整提示长度: {len(full_prompt)}")
+            
+            # 调用模型
+            try:
+                response = self.model(full_prompt)
+                logger.debug(f"模型原始响应: {response}")  # 新增此行
+                logger.info(f"模型响应: {response[:200]}...")
+            except Exception as e:
+                logger.error(f"模型调用失败: {e}", exc_info=True)
+                return f"系统错误: {str(e)}"
+            
+            # 解析工具调用
+            tool_name, tool_args = self.parse_tool_call(response)
+            
+            if tool_name:
+                observation = self.execute_tool(tool_name, tool_args)
+                current_prompt = f"{response}{observation}"
+                history.append({"role": "assistant", "content": current_prompt})
+                logger.info("工具调用完成，继续下一轮处理")
+            else:
+                final_answer = self.extract_final_answer(response)
+                logger.info(f"最终答案生成: {final_answer}")
+                return final_answer
+        
+        error_msg = "超过最大工具调用次数"
+        logger.error(error_msg)
+        return error_msg
 
-    # # 使用 LangChain 的 RetrievalQA 作为基础问答链，结合向量检索工具
-    # retrieval_qa = RetrievalQA.from_chain_type(
-    #     llm=deepseek_llm,
-    #     chain_type="stuff",   # 此处可根据需要选择不同 chain 模型
-    #     retriever=get_faiss_index()  # FAISS 检索器
-    # )
+    def extract_final_answer(self, text: str) -> str:
+        logger.info("正在提取最终答案...")
+        final_answer_marker = "\nFinal Answer:"
+        start_idx = text.rfind(final_answer_marker)
+        if start_idx != -1:
+            answer = text[start_idx + len(final_answer_marker):].strip()
+            logger.info(f"找到最终答案: {answer}")
+            return answer
+        logger.warning("未找到最终答案标记，返回原始响应")
+        return text.strip()
 
-    # 整合 agent，可加入多个工具
-    agent = initialize_agent(
-        tools=[weather_data_tool],
-        llm=deepseek_llm,
-        agent="zero-shot-react-description",
-        verbose=True,# 输出详细日志
-        handle_parsing_errors=True # 自动处理解析错误
-    )
-    return agent
-
-if __name__ == "__main__":
-    agent = get_agent()
-    query = input("请输入您的问题：")
-    answer = agent.run(query)
-    print("回答：", answer)
-
-    # location = input("请输入要查询天气的地名：")
-    # weather_info = get_weather(location)
-    # print("天气信息：", weather_info)
+    def run(self, query: str) -> str:
+        logger.info("启动查询处理流程")
+        try:
+            result = self.generate_response(query)
+            logger.info("查询处理完成")
+            return result
+        except Exception as e:
+            logger.error(f"处理过程中发生错误: {e}", exc_info=True)
+            return f"系统内部错误: {str(e)}"

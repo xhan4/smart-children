@@ -15,13 +15,10 @@ graph TD
     K --> L[返回用户]
 
 
-langchain  agents
+ReAct 推理框架 (REACT_PROMPT):定义代理的推理逻辑，结合 思考（Thought） 和 行动（Action）
+问题输入 → 2. 模型思考 → 3. 调用工具 → 4. 观察结果 → 5. 重复或给出最终答案。
 
-"zero-shot-react-description"：零样本（zero-shot）Agent，根据工具的描述动态选择工具。
-"react-docstore"：用于文档检索的 Agent。
-"self-ask-with-search"：支持自我提问和搜索的 Agent。
-"conversational-react-description"：支持多轮对话的 Agent。
-
-RetrievalQA 是 LangChain 中的一个工具链（Chain），用于实现基于检索的问答（Retrieval-Augmented Question Answering）。
-它的核心功能是结合检索器（Retriever）和语言模型（LLM），通过 RetrievalQA，实现基于外部知识库的智能问答系统，
-结合检索器和语言模型的优势，生成更准确和可靠的答案
+构建系统提示，告知模型可用工具。
+模型生成包含工具调用的中间步骤。
+代理解析并执行工具调用。
+将工具结果反馈给模型生成最终答案。

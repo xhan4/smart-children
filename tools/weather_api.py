@@ -1,19 +1,13 @@
-# import requests
-
-# def get_weather(location: str) -> str:
-#     # 这里使用模拟数据；实际项目中需替换成真实天气 API 接口调用
-#     # 比如：response = requests.get("https://api.weather.com/v3/wx/conditions/current", params={...})
-#     return f"{location} 当前天气：晴，温度 25°C" 
 import requests
 
 def get_weather(location: str) -> str:
-    api_key = "7ba3b4148490189d85506e1abe1e7d9a"  # 替换为你的高德 API Key
+    api_key = "7d816ca88f33edc160a2ff6dd7002642"
     weather_url = "https://restapi.amap.com/v3/weather/weatherInfo"
     try:
         # 调用高德地图天气 API
         params = {
             "key": api_key,
-            "city": 110000,
+            "city": location,
             "extensions": "base",  # base: 实时天气, all: 预报天气
             "output": "json",
         }

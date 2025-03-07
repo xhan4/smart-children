@@ -1,4 +1,5 @@
-langchain
+json5
+torch
 faiss-cpu
 pymongo
 paho-mqtt
