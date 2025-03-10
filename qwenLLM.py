@@ -1,19 +1,16 @@
 import json
 import os
-from dotenv import load_dotenv
 from openai import OpenAI
 from dashscope.api_entities.dashscope_response import Message
 from prompt import user_prompt
-load_dotenv()
-
 class QwenLLM(object):
     def __init__(self):
         self.api_key = os.getenv("DASHSCOPE_API_KEY")
         self.model_name = os.getenv("QWEN_MODEL_NAME")
         self._client = OpenAI(
                             api_key=os.getenv("DASHSCOPE_API_KEY"), 
-                        #   base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-                            base_url = "https://proxyapi.955id.com:60443/bfsuai"
+                            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                            # base_url = "https://proxyapi.955id.com:60443/bfsuai"
                           )
         self.max_retry_time=3
     

@@ -2,8 +2,8 @@ import os
 import time
 
 from deepSeekLLM import DeepSeekLLM
-from qwenLLM import QwenLLM
 from prompt import gen_prompt,user_prompt
+from qwenLLM import QwenLLM
 from tools import tools_map
 dsLLM = DeepSeekLLM()
 qwLLM = QwenLLM()

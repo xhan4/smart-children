@@ -6,3 +6,6 @@ paho-mqtt
 pyyaml
 streamlit
 requests
+langchain_community
+openai
+dashscope
