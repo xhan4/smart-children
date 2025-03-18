@@ -22,25 +22,23 @@ def read_file(filename):
     filename = os.path.join(WORKDIR_ROOT,filename)
     if not os.path.exists(filename):
         return f"{filename} not exist,please check file exist before read"
-    with open(filename,'r') as f:
+    with open(filename,'r',encoding='utf-8') as f:
         return '\n'.join(f.readlines())
 
 def append_to_file(filename,content):
     filename = os.path.join(WORKDIR_ROOT,filename)
     if not os.path.exists(filename):
         return f"{filename} not exist,please check file exist before read"
-    with open(filename,'a') as f:
+    with open(filename,'a',encoding='utf-8') as f:
         f.write(content)
-    return 'append content to file success'
+    return '将内容添加到文件中成功，保存成功'
 
 def write_to_file(filename,content):
     filename = os.path.join(WORKDIR_ROOT,filename)
-    if not os.path.exists(filename):
-        os.makedirs(WORKDIR_ROOT)
-
-    with open(filename,'w') as f:
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename,'w',encoding='utf-8') as f:
         f.write(content)
-    return 'write content to file success'
+    return '将内容写入文件成功,保存成功'
 
 def search(query):
     tavily = TavilySearchResults(api_key= os.getenv("TAVILY_API_KEY"),max_results=5)
@@ -75,7 +73,8 @@ def get_weather(query: str) -> str:
         if data.get("status") != "1" or not data.get("lives"):
             return f"未找到 '{query}' 的天气信息。"
         weather_info = data["lives"][0]
-        return weather_info
+        print(weather_info,'weather_info')
+        return f"这是天气查询工具的结果：{weather_info}"
     except Exception as e:
         return f"查询天气时出错：{str(e)}"  
 
@@ -134,7 +133,7 @@ tools_info =[
     },
     {
         "name": "get_weather",
-        "description": "这是一个天气查询工具，查询指定城市的实时天气信息，需要提供城市名称作为参数",
+        "description": "这是一个天气查询工具，查询指定城市的当天的天气信息，需要提供城市名称作为参数",
         'args': [
             {
                 "name": "query",

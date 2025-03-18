@@ -1,13 +1,15 @@
 import os
 import time
 
-from deepSeekLLM import DeepSeekLLM
+from llms.deepSeekLLM import DeepSeekLLM
+from llms.localDeepSeekLLM import LocalDeepSeekLLM
 from prompt import gen_prompt,user_prompt
-from qwenLLM import QwenLLM
+from llms.qwenLLM import QwenLLM
 from tools import tools_map
+lDsLLM = LocalDeepSeekLLM()
 dsLLM = DeepSeekLLM()
 qwLLM = QwenLLM()
-MP = qwLLM
+MP = dsLLM
 MAX_REQUEST_TIME = int(os.getenv('MAX_REQUEST_TIME'))
 def parse_thoughts(response):
      try:
@@ -24,9 +26,10 @@ def parse_thoughts(response):
 
 def agent_execute(query,max_request_time=10):
      cur_request_time = 0
+     current_search_count = 0
      chat_history = []
      agent_scratch = ''
-
+     last_action = ''
      while cur_request_time < max_request_time:
           cur_request_time+=1
           """
@@ -47,6 +50,7 @@ def agent_execute(query,max_request_time=10):
           # if cur_request_time<2:
           #      print("prompt:",prompt)
           response = MP.chat(prompt,chat_history)
+          print(response,'reponse')
           end_time = time.time()
           print("******************* {}. 调用结束，耗时：{}...*******************".format(cur_request_time,end_time-start_time ),flush=True)
 
@@ -70,11 +74,19 @@ def agent_execute(query,max_request_time=10):
                call_func_result = func(**action_args)
           except Exception as err:
                print('调用工具异常：',err)
-         
-          agent_scratch  = agent_scratch + "/n：observation:{}\n execute action result:{}".format(observation,call_func_result) 
+               call_func_result = None
+          if action_name == "finish":
+               current_search_count=0
+          if last_action!= action_name:
+               last_action = action_name
+               current_search_count=0
+               print(last_action,action_name,'======')
+          current_search_count+=1
+          agent_scratch  = agent_scratch + "/n：observation:{}\n search_count:{} execute action result:{}".format(observation,current_search_count,call_func_result)
           assistant_msg = parse_thoughts(response)
           chat_history.append([user_prompt,assistant_msg])
      if cur_request_time == max_request_time:
+          current_search_count=0
           print("本次任务失败")
 
 def main():

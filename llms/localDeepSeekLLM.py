@@ -3,9 +3,8 @@ import requests
 from prompt import user_prompt
 from utils import extract_json
 logger = logging.getLogger(__name__)
-# https://proxyapi.955id.com:60443/bfsuai
-# http://localhost:11434/api/generate
-class DeepSeekLLM:
+
+class LocalDeepSeekLLM:
     def __init__(self, base_url="http://localhost:11434/api/generate"):
         self.base_url = base_url
         self.max_retry_time = 3
