@@ -30,6 +30,7 @@ def agent_execute(query,max_request_time=10):
      chat_history = []
      agent_scratch = ''
      last_action = ''
+     start_time = time.time()
      while cur_request_time < max_request_time:
           cur_request_time+=1
           """
@@ -45,14 +46,11 @@ def agent_execute(query,max_request_time=10):
                6.给出更好实践的描述
           """
           prompt = gen_prompt(query,agent_scratch)
-          start_time = time.time()
+         
           print("******************* {}. 开始调用 *******************".format(cur_request_time),flush=True)
-          # if cur_request_time<2:
-          #      print("prompt:",prompt)
           response = MP.chat(prompt,chat_history)
           print(response,'reponse')
-          end_time = time.time()
-          print("******************* {}. 调用结束，耗时：{}...*******************".format(cur_request_time,end_time-start_time ),flush=True)
+          print("******************* {}. 调用结束*******************".format(cur_request_time),flush=True)
 
           if not response or not isinstance(response,dict):
                print("调用大模型错误，即将重试...",response)
@@ -65,7 +63,8 @@ def agent_execute(query,max_request_time=10):
 
           if action_name == "finish":
                final_answer = action_args.get('answer')
-               print("final_answer:",final_answer)
+               end_time = time.time()
+               print(f"final_answer{end_time-start_time}:",final_answer)
                break
           
           observation = response.get("observation")
@@ -80,7 +79,6 @@ def agent_execute(query,max_request_time=10):
           if last_action!= action_name:
                last_action = action_name
                current_search_count=0
-               print(last_action,action_name,'======')
           current_search_count+=1
           agent_scratch  = agent_scratch + "/n：observation:{}\n search_count:{} execute action result:{}".format(observation,current_search_count,call_func_result)
           assistant_msg = parse_thoughts(response)
@@ -94,6 +92,7 @@ def main():
           query = input("请输入您的问题：")
           if query == 'exit':
                 return
+          
           agent_execute(query,max_request_time=MAX_REQUEST_TIME )
 
         
